@@ -1,5 +1,10 @@
+from itertools import chain
+from typing import List
+
 from sqlalchemy import MetaData, Table
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine.base import Connection
+from sqlalchemy.engine.row import Row
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.inspection import inspect
@@ -53,6 +58,19 @@ def locate_vn_term(term: str, metadata: MetaData, engine: Engine):
     dictionary_table = Table("tungdev_DICTIONARY", metadata, autoload_with=engine)
     vn_synonym_table = Table("tungdev_VN_SYNONYM", metadata, autoload_with=engine)
 
+    en_vsrc_tables = (
+        Table(f"tungdev_EN_{src}", metadata, autoload_with=engine)
+        for src in [
+            "DO",
+        ]
+    )
+    en_vsrc_synonym_tables = (
+        Table(f"tungdev_{src}_SYNONYM", metadata, autoload_with=engine)
+        for src in [
+            "DO",
+        ]
+    )
+
     with engine.connect() as conn:
         # Search in tungdev_DICTIONARY for a match
         dictionary_match = vn_main_in_dictionary(conn, dictionary_table, term)
@@ -72,12 +90,17 @@ def locate_vn_term(term: str, metadata: MetaData, engine: Engine):
                 en_main = vn_main_in_dictionary(conn, dictionary_table, vn_main).EN_main
 
         vn_synonyms = vn_main_to_synonyms(conn, vn_synonym_table, vn_main)
-        return vn_main, en_main, vn_synonyms
+        en_synonyms = en_main_to_synonyms(
+            conn, en_vsrc_tables, en_vsrc_synonym_tables, en_main
+        )
+        return vn_main, en_main, vn_synonyms, en_synonyms
 
-    return None, None, [None]
+    return None, None, [None], [None]
 
 
-def vn_main_in_dictionary(conn, dictionary_table, vn_main):
+def vn_main_in_dictionary(
+    conn: Connection, dictionary_table: Table, vn_main: str
+) -> Row:
     """
     Assuming vn_main 1:1 en_main. Find rows in
     dictionary_table where vn_main lies
@@ -88,7 +111,9 @@ def vn_main_in_dictionary(conn, dictionary_table, vn_main):
     return match
 
 
-def vn_main_to_synonyms(conn, vn_synonym_table, vn_main):
+def vn_main_to_synonyms(
+    conn: Connection, vn_synonym_table: Table, vn_main: str
+) -> List[str]:
     """
     Assuming vn_main 1:1 en_main. Find rows in
     dictionary_table where vn_main lies
@@ -101,3 +126,33 @@ def vn_main_to_synonyms(conn, vn_synonym_table, vn_main):
     ).fetchall()
     match = [i.VN_synonym for i in match]
     return match
+
+
+def en_main_to_vsource_id(conn: Connection, en_vsrc_table: Table, en_main: str) -> str:
+    primary_key = [i.name for i in en_vsrc_table.primary_key.columns.values()][0]
+
+    en_vsrc_match = conn.execute(
+        select(en_vsrc_table.c[primary_key]).where(en_vsrc_table.c.EN_main == en_main)
+    ).fetchone()[0]
+
+    return en_vsrc_match
+
+
+def en_main_to_synonyms(
+    conn, en_vsrc_tables: List[Table], en_vsrc_synonym_tables: List[Table], en_main: str
+) -> List[str]:
+    return_list = []
+
+    for src, src_synonym in zip(en_vsrc_tables, en_vsrc_synonym_tables):
+        primary_key = [i.name for i in src.primary_key.columns.values()][0]
+        src_match = en_main_to_vsource_id(conn, src, en_main)
+
+        synonym_match = conn.execute(
+            select(src_synonym.c.EN_synonym).where(
+                src_synonym.c[primary_key] == src_match
+            )
+        ).fetchall()
+        synonym_match = [i[0] for i in synonym_match]
+        return_list += synonym_match
+
+    return return_list

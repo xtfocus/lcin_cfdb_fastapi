@@ -11,3 +11,4 @@ class ViConceptModel(BaseModel):
     vn_main: Optional[str] = None
     en_main: Optional[str] = None
     vn_synonyms: Optional[List[str]] = [None]
+    en_synonyms: Optional[List[str]] = [None]

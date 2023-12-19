@@ -2,7 +2,7 @@
 
 - [ ] locate any Vietnamese terms: show it's
     - [x] vn_main, en_main, vn_synonyms
-    - [ ] en_synonyms
+    - [x] en_synonyms
     - [ ] cui, doid
 - [ ] locate any English terms
     - [ ] vn_main
