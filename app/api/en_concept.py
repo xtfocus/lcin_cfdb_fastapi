@@ -8,5 +8,10 @@ router = APIRouter()
 
 
 @router.get("/concept/en/{en_term}")
-def discover_en_term(en_term: str):
-    return "route not available"
+async def discover_en_term(en_term: str):
+    """
+    If term not mapped to any source (CUI, DO), return error
+    Else, return  the corresponding ViConceptModel of the corresponding
+    """
+
+    return crud.locate_en_term(en_term)
