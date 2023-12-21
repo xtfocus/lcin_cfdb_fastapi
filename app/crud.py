@@ -1,12 +1,8 @@
-from itertools import chain
 from typing import List, Union
 
-from sqlalchemy import MetaData, Table
-from sqlalchemy.engine import Engine
+from sqlalchemy import Table, and_, select
 from sqlalchemy.engine.base import Connection
 from sqlalchemy.engine.row import Row
-# from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 
@@ -117,10 +113,6 @@ def locate_vn_term(term: str) -> Union[None, str, str, List[str], List[str]]:
     ----------
     term : str
         Vietnamese term to locate.
-    metadata : MetaData
-        SQLAlchemy MetaData object.
-    engine : Engine
-        SQLAlchemy Engine object.
 
     Returns
     -------
@@ -144,16 +136,25 @@ def locate_vn_term(term: str) -> Union[None, str, str, List[str], List[str]]:
 
             else:
                 # If no matches found for vn_main
-                return None, None, [None], [None]
+                return None, None, None, None, None
 
         vn_synonyms = vn_main_to_synonyms(conn, vn_synonym_table, vn_main)
         en_synonyms = en_main_to_synonyms(
             conn, en_vsrc_tables, en_vsrc_synonym_tables, en_main
         )
-        return vn_main, en_main, vn_synonyms, en_synonyms
+        en_main_vsrc = {
+            vsource.name: en_main_to_vsource_id(conn, vsource, en_main)
+            for vsource in en_vsrc_tables
+        }
+
+        return vn_main, en_main, vn_synonyms, en_synonyms, en_main_vsrc
 
 
-def vn_synonym_to_vn_main(conn: Connection, vn_term: str):
+def vn_synonym_to_vn_main(conn: Connection, vn_term: str) -> Union[str, None]:
+    """
+    Given a vn_synonym, find its vn_main.
+    Return None if not found
+    """
     query_synonym = select(vn_synonym_table.c.VN_main).where(
         vn_synonym_table.c.VN_synonym == vn_term
     )
@@ -208,6 +209,12 @@ def vn_main_to_synonyms(
 
 
 def en_main_to_vsource_id(conn: Connection, en_vsrc_table: Table, en_main: str) -> str:
+    """
+    Given a term assumed to be an en_main, find its mapping
+        to validation source  en_vsrc_table
+
+    If not found, return None
+    """
     primary_key = [i.name for i in en_vsrc_table.primary_key.columns.values()][0]
 
     en_vsrc_match = conn.execute(
@@ -226,6 +233,9 @@ def en_main_to_synonyms(
     en_vsrc_synonym_tables: List[Table],
     en_main: str,
 ) -> List[str]:
+    """
+    Given en_main, find its synonym list
+    """
     return_list = []
 
     for src, src_synonym in zip(en_vsrc_tables, en_vsrc_synonym_tables):
@@ -235,9 +245,6 @@ def en_main_to_synonyms(
         if not src_match:
             continue
 
-        else:
-            print(f"src found = {src_match}")
-
         synonym_match = conn.execute(
             select(src_synonym.c.EN_synonym).where(
                 src_synonym.c[primary_key] == src_match
@@ -245,32 +252,20 @@ def en_main_to_synonyms(
         ).fetchall()
         if synonym_match:
             synonym_match = [i[0] for i in synonym_match]
-            print(f"src match={synonym_match}")
         else:
             continue
 
         return_list += synonym_match
-
-    print("en synonyms =====")
-    print(return_list)
-    print("en synonyms =====")
     return return_list
 
 
-def en_term_to_en_main(conn: Connection, en_term: str):
+def en_synonym_to_vsource(
+    conn: Connection, src_synonym: Table, en_synonym: str
+) -> Union[Row, None]:
     """
-    Check if en_term == a known en_main
+    Given a term, check if it is a synonym in src_synonym table
+    If it is, return the corresponding row. Otherwise return None
     """
-    dictionary_match = conn.execute(
-        select(dictionary_table).where(dictionary_table.c.EN_main == en_term)
-    ).fetchone()
-    if dictionary_match:
-        return dictionary_match
-    else:
-        return None
-
-
-def en_synonym_to_vsource(conn, src_synonym, en_synonym):
     match = conn.execute(
         select(src_synonym).where(src_synonym.c.EN_synonym == en_synonym)
     ).fetchone()
@@ -281,7 +276,12 @@ def en_synonym_to_vsource(conn, src_synonym, en_synonym):
         return None
 
 
-def en_synonym_to_en_main(conn, en_synonym):
+def en_synonym_to_en_main(conn: Connection, en_synonym: Table) -> Union[str, None]:
+    """
+    Given a term, check if it is a synonym
+    If it is, return the corresponding en_main. Otherwise return None
+    """
+
     en_main = None
     for src, src_synonym in zip(en_vsrc_tables, en_vsrc_synonym_tables):
         primary_key = [i.name for i in src.primary_key.columns.values()][0]
@@ -300,9 +300,23 @@ def en_synonym_to_en_main(conn, en_synonym):
     return en_main
 
 
-def locate_en_term(en_term: str):
+def locate_en_term(en_term: str) -> Union[None, str, str, List[str], List[str]]:
+    """
+    Locate the English term in the database.
+
+    Parameters
+    ----------
+    en_term : str
+        English term to locate.
+
+    Returns
+    -------
+    Union[None, str, str, List[str], List[str]]
+        Tuple containing Vietnamese main, English main, Vietnamese synonyms, and English synonyms.
+    """
+
     with engine.connect() as conn:
-        dictionary_match = en_term_to_en_main(conn, en_term)
+        dictionary_match = en_main_in_dictionary(conn, en_term)
 
         if dictionary_match:
             en_main = dictionary_match.EN_main
@@ -313,21 +327,83 @@ def locate_en_term(en_term: str):
             if en_main:
                 vn_main = en_main_in_dictionary(conn, en_main).VN_main
             else:
-                return None, None, [None], [None]
-
-        print("D1======")
-        print(en_main)
-        print(vn_main)
-        print("======")
+                return None, None, None, None, None
 
         vn_synonyms = vn_main_to_synonyms(conn, vn_synonym_table, vn_main)
         en_synonyms = en_main_to_synonyms(
             conn, en_vsrc_tables, en_vsrc_synonym_tables, en_main
         )
 
-        print("D2======")
-        print(en_synonyms)
-        print(vn_synonyms)
-        print("======")
+        en_main_vsrc = {
+            vsource.name: en_main_to_vsource_id(conn, vsource, en_main)
+            for vsource in en_vsrc_tables
+        }
 
-        return vn_main, en_main, vn_synonyms, en_synonyms
+        return vn_main, en_main, vn_synonyms, en_synonyms, en_main_vsrc
+
+
+def calculate_validated_en_main(en_vsrc_tables: List[Table]) -> int:
+    with engine.connect() as conn:
+        subquery = select(dictionary_table.c.EN_main)
+
+        for src in en_vsrc_tables:
+            subquery = subquery.join(src, dictionary_table.c.EN_main == src.c.EN_main)
+
+        result = conn.execute(subquery).fetchall()
+
+        if result:
+            result = [i[0] for i in result]
+            return result
+        else:
+            return []
+
+
+def calculate_non_validated_en_main(en_vsrc_tables: List[Table]) -> int:
+    with engine.connect() as conn:
+        subquery = select(dictionary_table.c.EN_main)
+
+        # Use a loop to dynamically join tables
+        for table in en_vsrc_tables:
+            subquery = subquery.outerjoin(
+                table, dictionary_table.c.EN_main == table.c.EN_main
+            )
+
+        subquery = subquery.filter(
+            and_(*[(table.c.EN_main == None) for table in en_vsrc_tables])
+        )
+
+        result = conn.execute(subquery).fetchall()
+
+        if result:
+            result = [i[0] for i in result]
+            return result
+        else:
+            return []
+
+
+def validated_en_main_statistics(en_vsrc_tables: List[Table]):
+    """
+    Count the number of en_main in dictionary table that are:
+        - mapped to each validation source
+        - mapped to all
+        - mapped to none
+    """
+    result = dict()
+
+    with engine.connect() as conn:
+        result["dictionary_size"] = len(
+            conn.execute(select(dictionary_table.c.EN_main)).fetchall()
+        )
+
+    result["count_uncharted_en_mains"] = len(
+        calculate_non_validated_en_main(en_vsrc_tables)
+    )
+    result["count_charted"] = dict()
+    for table in en_vsrc_tables:
+        result["count_charted"][table.name] = len(calculate_validated_en_main([table]))
+
+    result["count_charted_to_all_vsources"] = len(
+        calculate_validated_en_main(en_vsrc_tables)
+    )
+
+    return result

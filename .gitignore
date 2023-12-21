@@ -43,4 +43,4 @@ lib64/
 # Notebooks
 **/notebooks/
 
-
+.archive/
