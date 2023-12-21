@@ -11,17 +11,21 @@ from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 
 from app.db.db_setup import engine
-from app.db.dictionary import metadata
+from app.db.dictionary import TableName, metadata
 from app.pydantic_schemas.table import TableModel
 
-dictionary_table = Table("tungdev_DICTIONARY", metadata, autoload_with=engine)
-vn_synonym_table = Table("tungdev_VN_SYNONYM", metadata, autoload_with=engine)
+# Loading the database as global vars
+dictionary_table = Table(TableName.TRANSLATION.value, metadata, autoload_with=engine)
+vn_synonym_table = Table(TableName.VN_SYNONYM.value, metadata, autoload_with=engine)
 
 en_vsrc_tables = [
-    Table(f"tungdev_EN_{src}", metadata, autoload_with=engine) for src in ["DO"]
+    Table(TableName.EN_DO.value, metadata, autoload_with=engine),
+    Table(TableName.EN_UMLS.value, metadata, autoload_with=engine),
 ]
+
 en_vsrc_synonym_tables = [
-    Table(f"tungdev_{src}_SYNONYM", metadata, autoload_with=engine) for src in ["DO"]
+    Table(TableName.DO_SYNONYM.value, metadata, autoload_with=engine),
+    Table(TableName.UMLS_SYNONYM.value, metadata, autoload_with=engine),
 ]
 
 
@@ -197,8 +201,10 @@ def vn_main_to_synonyms(
             vn_synonym_table.c.VN_main == vn_main
         )
     ).fetchall()
-    match = [i.VN_synonym for i in match]
-    return match
+    if not match:
+        return []
+    else:
+        return [i.VN_synonym for i in match]
 
 
 def en_main_to_vsource_id(conn: Connection, en_vsrc_table: Table, en_main: str) -> str:
@@ -206,9 +212,12 @@ def en_main_to_vsource_id(conn: Connection, en_vsrc_table: Table, en_main: str) 
 
     en_vsrc_match = conn.execute(
         select(en_vsrc_table.c[primary_key]).where(en_vsrc_table.c.EN_main == en_main)
-    ).fetchone()[0]
+    ).fetchone()
 
-    return en_vsrc_match
+    if en_vsrc_match:
+        return en_vsrc_match[0]
+    else:
+        return None
 
 
 def en_main_to_synonyms(
@@ -223,20 +232,34 @@ def en_main_to_synonyms(
         primary_key = [i.name for i in src.primary_key.columns.values()][0]
         src_match = en_main_to_vsource_id(conn, src, en_main)
 
+        if not src_match:
+            continue
+
+        else:
+            print(f"src found = {src_match}")
+
         synonym_match = conn.execute(
             select(src_synonym.c.EN_synonym).where(
                 src_synonym.c[primary_key] == src_match
             )
         ).fetchall()
-        synonym_match = [i[0] for i in synonym_match]
+        if synonym_match:
+            synonym_match = [i[0] for i in synonym_match]
+            print(f"src match={synonym_match}")
+        else:
+            continue
+
         return_list += synonym_match
 
+    print("en synonyms =====")
+    print(return_list)
+    print("en synonyms =====")
     return return_list
 
 
 def en_term_to_en_main(conn: Connection, en_term: str):
     """
-    Check if en_term corresponds to a known en_main
+    Check if en_term == a known en_main
     """
     dictionary_match = conn.execute(
         select(dictionary_table).where(dictionary_table.c.EN_main == en_term)
@@ -253,7 +276,6 @@ def en_synonym_to_vsource(conn, src_synonym, en_synonym):
     ).fetchone()
 
     if match:
-        print("HEHEHE", match)
         return match
     else:
         return None
@@ -265,13 +287,7 @@ def en_synonym_to_en_main(conn, en_synonym):
         primary_key = [i.name for i in src.primary_key.columns.values()][0]
         src_synonym_match = en_synonym_to_vsource(conn, src_synonym, en_synonym)
         if src_synonym_match:
-            print(primary_key)
-            print(type(src_synonym_match))
-
-            # NEEED CHANGE
             src_code = src_synonym_match._asdict()[primary_key]
-
-            print("found", src_code)
 
             en_main = (
                 conn.execute(
@@ -297,35 +313,21 @@ def locate_en_term(en_term: str):
             if en_main:
                 vn_main = en_main_in_dictionary(conn, en_main).VN_main
             else:
-                return None, None
+                return None, None, [None], [None]
 
-    return vn_main, en_main
+        print("D1======")
+        print(en_main)
+        print(vn_main)
+        print("======")
 
+        vn_synonyms = vn_main_to_synonyms(conn, vn_synonym_table, vn_main)
+        en_synonyms = en_main_to_synonyms(
+            conn, en_vsrc_tables, en_vsrc_synonym_tables, en_main
+        )
 
-#        dictionary_match = conn.execute(
-#            select(dictionary_table.c.EN_main).where(
-#                dictionary_table.c.EN_main == en_term
-#            )
-#        ).fetchone()
-#
-#        if dictionary_match:
-#            en_main = dictionary_match.EN_main
-#        else:
-#            for src, src_synonym in zip(en_vsrc_tables, en_vsrc_synonym_tables):
-#                primary_key = [i.name for i in src.primary_key.columns.values()][0]
-#
-#                # find the matched value of DOID/CUI
-#                src_synonym_match = conn.execute(
-#                    select(src_synonym.c[primary_key]).where(
-#                        src_synonym.c.EN_synonym == en_term
-#                    )
-#                ).fetchone()[0]
-#
-#                if src_synonym_match:
-#                    en_main = conn.execute(
-#                        select(src.c.EN_main).where(
-#                            src.c[primary_key] == src_synonym_match
-#                        )
-#                    ).fetchone()
-#                else:
-#                    return None, None, [None], [None]
+        print("D2======")
+        print(en_synonyms)
+        print(vn_synonyms)
+        print("======")
+
+        return vn_main, en_main, vn_synonyms, en_synonyms

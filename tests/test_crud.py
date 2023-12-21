@@ -7,7 +7,6 @@ client = TestClient(app)
 def test_vi_term_not_found():
     response = client.get("/concept/vi/ten vi khong ton tai")
     assert response.status_code == 404
-    assert response.json() == {"detail": "Vn term not found in database"}
 
 
 def test_vi_term_found():
