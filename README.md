@@ -22,7 +22,7 @@
 2. Create .env.dev file containing url to your database like this
 
 ```bash
-DEV_DATABASE_URI="mssql+pyodbc://<you_user>:<your_password>@<youdatabasehost>:1433/dev_db?autocommit=False&driver=ODBC+Driver+17+for+SQL+Server"
+DEV_DATABASE_URI="mssql+pyodbc://<you_user>:<your_password>@<your_database_host>:1433/<your_database_name>?autocommit=False&driver=ODBC+Driver+17+for+SQL+Server"
 ```
 
 For example:
