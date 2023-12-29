@@ -1,6 +1,6 @@
 from typing import List, Union
 
-from sqlalchemy import Table, and_, select
+from sqlalchemy import Table, and_, func, select
 from sqlalchemy.engine.base import Connection
 from sqlalchemy.engine.row import Row
 from sqlalchemy.inspection import inspect
@@ -23,6 +23,8 @@ en_vsrc_synonym_tables = [
     Table(TableName.DO_SYNONYM.value, metadata, autoload_with=engine),
     Table(TableName.UMLS_SYNONYM.value, metadata, autoload_with=engine),
 ]
+
+editor_table = Table(TableName.EDITOR.value, metadata, autoload_with=engine)
 
 
 def get_count(db: Session, table: Table) -> int:
@@ -407,3 +409,24 @@ def validated_en_main_statistics(en_vsrc_tables: List[Table]):
     )
 
     return result
+
+
+def rows_per_editors():
+    with engine.connect() as conn:
+        subquery = (
+            select(
+                editor_table.c.User_Name,
+                func.count(func.distinct(dictionary_table.c.VN_main)).label("n_rows"),
+            )
+            .select_from(
+                editor_table.outerjoin(
+                    dictionary_table,
+                    editor_table.c.User_Id == dictionary_table.c.Insert_User,
+                )
+            )
+            .group_by(editor_table.c.User_Id, editor_table.c.User_Name)
+        )
+
+        result = conn.execute(subquery)
+        rows = result.fetchall()
+        return dict(rows)

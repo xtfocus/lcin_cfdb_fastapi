@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
-from app.api import en_concept, en_main_validate, table_summary, vn_concept
+from app.api import (editor_summary, en_concept, en_main_validate,
+                     table_summary, vn_concept)
 
 app = FastAPI(
     title="LCIN Dictionary Fast API",
@@ -19,3 +20,4 @@ app.include_router(table_summary.router)
 app.include_router(vn_concept.router)
 app.include_router(en_concept.router)
 app.include_router(en_main_validate.router)
+app.include_router(editor_summary.router)
