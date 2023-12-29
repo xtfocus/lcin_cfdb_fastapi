@@ -411,22 +411,38 @@ def validated_en_main_statistics(en_vsrc_tables: List[Table]):
     return result
 
 
-def rows_per_editors():
-    with engine.connect() as conn:
-        subquery = (
-            select(
-                editor_table.c.User_Name,
-                func.count(func.distinct(dictionary_table.c.VN_main)).label("n_rows"),
-            )
-            .select_from(
-                editor_table.outerjoin(
-                    dictionary_table,
-                    editor_table.c.User_Id == dictionary_table.c.Insert_User,
-                )
-            )
-            .group_by(editor_table.c.User_Id, editor_table.c.User_Name)
-        )
+def rows_per_editors(mode: str):
+    f"""
+    Count the number of {mode} rows per editor across all tables
+    """
+    if mode == "insert":
+        user_col = "Insert_User"
+    else:
+        user_col = "Update_User"
 
-        result = conn.execute(subquery)
-        rows = result.fetchall()
-        return dict(rows)
+    tables = (
+        [dictionary_table, vn_synonym_table] + en_vsrc_tables + en_vsrc_synonym_tables
+    )
+
+    contribution = dict()
+    with engine.connect() as conn:
+        for table in tables:
+            subquery = (
+                select(
+                    editor_table.c.User_Name,
+                    func.count().label("n_rows"),
+                )
+                .select_from(
+                    editor_table.outerjoin(
+                        table,
+                        editor_table.c.User_Id == table.c[user_col],
+                    )
+                )
+                .group_by(editor_table.c.User_Id, editor_table.c.User_Name)
+            )
+
+            result = conn.execute(subquery)
+            rows = result.fetchall()
+            contribution[table.name] = dict(rows)
+
+        return contribution
