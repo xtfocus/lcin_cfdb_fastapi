@@ -1,10 +1,5 @@
 from enum import Enum
 
-from sqlalchemy import MetaData
-
-# Reflect the existing CID_DISEASE_ONTOLOGY_ALL table from the database
-metadata = MetaData()
-
 
 class TableName(str, Enum):
     TRANSLATION = "CID_LCIN_DICTIONARY"
@@ -16,3 +11,6 @@ class TableName(str, Enum):
     DO_SYNONYM = "CID_LCIN_EN_DO_SYNONYM"
     EDITOR = "CID_LCIN_EDITOR"
     VSOURCE = "CID_LCIN_VALIDATION_SOURCE"
+
+    # user-password table
+    LOGINS = "CID_LCIN_FASTAPI_LOGIN_HASHED"

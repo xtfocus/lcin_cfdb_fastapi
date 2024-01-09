@@ -1,14 +1,17 @@
 from typing import List, Union
 
-from sqlalchemy import Table, and_, func, select
+from sqlalchemy import MetaData, Table, and_, func, select
 from sqlalchemy.engine.base import Connection
 from sqlalchemy.engine.row import Row
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 
 from app.db.db_setup import engine
-from app.db.dictionary import TableName, metadata
+from app.db.dictionary import TableName
 from app.pydantic_schemas.table import TableModel
+
+metadata = MetaData()
+
 
 # Loading the database as global vars
 dictionary_table = Table(TableName.TRANSLATION.value, metadata, autoload_with=engine)
